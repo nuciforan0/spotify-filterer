@@ -117,7 +117,6 @@ def callback():
         # Exchange the code for an access token
         token_info = oauth_manager.get_access_token(code)
         # We don't save it directly, the FlaskSessionCacheHandler did it for us.
-        # session['token_info'] = token_info (This is now handled automatically)
     except Exception as e:
         return f"Error getting token: {e}"
 
@@ -248,7 +247,7 @@ HTML_LOGIN_PAGE = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-m-8">
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Spotify Filterer</title>
     <style>
@@ -277,22 +276,105 @@ HTML_APP_PAGE = """
     <title>Spotify Filterer</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #121212; color: #fff; margin: 0; padding: 2rem; }
-        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #282828; padding-bottom: 1rem; }
+        .header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            border-bottom: 1px solid #282828; 
+            padding-bottom: 2rem; /* Increased padding */
+            margin-bottom: 2rem;  /* Added margin */
+        }
         .header h1 { margin: 0; }
         .header span { font-size: 0.9rem; }
         .logout-btn { background: #333; color: white; text-decoration: none; padding: 0.5rem 1rem; border-radius: 500px; font-size: 0.9rem; font-weight: bold; }
         .logout-btn:hover { background: #555; }
-        .content { display: grid; grid-template-columns: 1fr; gap: 2rem; margin-top: 2rem; max-width: 1000px; margin-left: auto; margin-right: auto;}
-        @media (min-width: 768px) { .content { grid-template-columns: 1fr 1fr; } }
+        
+        .content { 
+            display: grid; 
+            grid-template-columns: 1fr; /* Default to single column */
+            gap: 2rem; 
+            max-width: 1200px; /* Increased max width */
+            margin-left: auto; 
+            margin-right: auto;
+        }
+        /* Asymmetrical layout on larger screens */
+        @media (min-width: 768px) { 
+            .content { grid-template-columns: 1fr 2fr; } /* 1:2 ratio */
+        }
+        
         .box { background: #181818; padding: 1.5rem; border-radius: 1rem; }
         h2 { margin-top: 0; border-bottom: 1px solid #282828; padding-bottom: 0.5rem; }
+        
         .form-group { margin-bottom: 1.5rem; }
         .form-group label { display: block; margin-bottom: 0.5rem; font-weight: bold; }
         .form-group input[type='text'] { width: 100%; padding: 0.8rem; background: #282828; border: 1px solid #555; border-radius: 0.5rem; color: #fff; box-sizing: border-box; }
-        .playlist-list { max-height: 400px; overflow-y: auto; background: #282828; border-radius: 0.5rem; padding: 1rem; border: 1px solid #555; }
-        .playlist-item { display: block; margin-bottom: 0.5rem; }
-        .playlist-item input { margin-right: 0.5rem; }
-        .submit-btn { width: 100%; background-color: #1DB954; color: white; padding: 1rem 2rem; border: none; border-radius: 500px; text-decoration: none; font-size: 1.2rem; font-weight: bold; cursor: pointer; }
+        
+        .playlist-list { 
+            max-height: 600px; /* Increased height */
+            overflow-y: auto; 
+            background: #282828; 
+            border-radius: 0.5rem; 
+            padding: 1rem; 
+            border: 1px solid #555;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem; /* Space between items */
+        }
+        
+        /* New Playlist Item Styling */
+        .playlist-item {
+            display: flex;
+            align-items: center;
+            padding: 0.5rem;
+            border-radius: 8px;
+            transition: background-color 0.2s;
+            cursor: pointer;
+        }
+        .playlist-item:hover {
+            background-color: #3a3a3a;
+        }
+        
+        .playlist-item input[type='checkbox'] {
+            accent-color: #1DB954; /* Style the checkbox */
+            width: 1.2rem;
+            height: 1.2rem;
+            flex-shrink: 0; /* Prevent checkbox from shrinking */
+        }
+        
+        .playlist-cover {
+            width: 50px;
+            height: 50px;
+            object-fit: cover;
+            border-radius: 4px; /* Spotify-like rounded square */
+            margin-left: 0.75rem;
+            margin-right: 0.75rem;
+            flex-shrink: 0;
+        }
+        .playlist-cover.placeholder {
+            background: #333;
+            display: grid;
+            place-items: center;
+            font-size: 1.5rem;
+        }
+        
+        .playlist-info {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden; /* Prevent long names from breaking layout */
+        }
+        .playlist-name {
+            font-weight: bold;
+            color: #fff;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .playlist-count {
+            font-size: 0.85rem;
+            color: #aaa;
+        }
+        
+        .submit-btn { width: 100%; background-color: #1DB954; color: white; padding: 1rem 2rem; border: none; border-radius: 500px; text-decoration: none; font-size: 1.2rem; font-weight: bold; cursor: pointer; margin-top: 1rem; }
         .submit-btn:hover { background-color: #1ED760; }
         #response-box { margin-top: 1rem; background: #282828; padding: 1rem; border-radius: 0.5rem; display: none; }
     </style>
@@ -303,46 +385,64 @@ HTML_APP_PAGE = """
         <span>Logged in as: <b>{{ user_name }}</b> <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a></span>
     </div>
 
-    <form id="filter-form"> <!-- MOVED FORM TAG HERE TO WRAP EVERYTHING -->
+    <!-- Form now wraps both columns -->
+    <form id="filter-form">
     <div class="content">
         <div class="box">
-            <!-- REMOVED <form> TAG FROM HERE -->
-                <h2>1. Target Playlist</h2>
-                <p>Paste the link of the playlist you want to clean up.</p>
-                <div class="form-group">
-                    <label for="target_playlist">Target Playlist Link</label>
-                    <input type="text" id="target_playlist" name="target_playlist" required placeholder="https://open.spotify.com/playlist/...">
-                </div>
-                
-                <h2>3. Run Filter</h2>
-                <p>This will permanently remove songs from your target playlist.</p>
-                <button type="submit" class="submit-btn">Start Filtering</button>
-            <!-- REMOVED </form> TAG FROM HERE -->
+            <h2>1. Target Playlist</h2>
+            <p>Paste the link of the playlist you want to clean up.</p>
+            <div class="form-group">
+                <label for="target_playlist">Target Playlist Link</label>
+                <input type="text" id="target_playlist" name="target_playlist" required placeholder="https://open.spotify.com/playlist/...">
+            </div>
+            
+            <h2>3. Run Filter</h2>
+            <p>This will permanently remove songs from your target playlist.</p>
+            <button type="submit" class="submit-btn">Start Filtering</button>
         </div>
 
         <div class="box">
             <h2>2. Filter Playlists</h2>
             <p>Select which songs to remove. Any song from these sources will be removed from your target playlist.</p>
             <div class="playlist-list" id="filter-playlists-container">
-                <!-- Checkbox for Liked Songs -->
+                
+                <!-- Styled Liked Songs Item -->
                 <label class="playlist-item">
                     <input type="checkbox" name="include_liked_songs" checked>
-                    <b>Your Liked Songs</b>
+                    <div class="playlist-cover placeholder" style="background: linear-gradient(135deg, #4e00f5, #a300da);">
+                        <span style="font-size: 1.5rem;">❤️</span>
+                    </div>
+                    <div class="playlist-info">
+                        <span class="playlist-name">Your Liked Songs</span>
+                    </div>
                 </label>
                 
                 <!-- Playlists will be populated here -->
                 {% for playlist in playlists %}
                 <label class="playlist-item">
                     <input type="checkbox" name="filter_playlists" value="{{ playlist.id }}">
-                    {{ playlist.name }} ({{ playlist.tracks.total }} songs)
+                    
+                    {% if playlist.images and playlist.images|length > 0 %}
+                        <img src="{{ playlist.images[-1].url }}" alt="{{ playlist.name }} cover" class="playlist-cover">
+                    {% else %}
+                        <!-- Placeholder for playlists with no image -->
+                        <div class="playlist-cover placeholder">
+                            <span>🎵</span>
+                        </div>
+                    {% endif %}
+
+                    <div class="playlist-info">
+                        <span class="playlist-name">{{ playlist.name }}</span>
+                        <span class="playlist-count">{{ playlist.tracks.total }} songs</span>
+                    </div>
                 </label>
                 {% endfor %}
             </div>
         </div>
     </div>
-    </form> <!-- MOVED </form> TAG HERE -->
+    </form> <!-- Form tag closes here -->
     
-    <div style="max-width: 1000px; margin-left: auto; margin-right: auto;">
+    <div style="max-width: 1200px; margin-left: auto; margin-right: auto;">
         <div id="response-box"></div>
     </div>
 
@@ -355,11 +455,10 @@ HTML_APP_PAGE = """
             const submitBtn = form.querySelector('.submit-btn');
             const responseBox = document.getElementById('response-box');
             
-            <!-- DELETED THE REDUNDANT JAVASCRIPT LOOP -->
-            
             submitBtn.disabled = true;
             submitBtn.textContent = 'Filtering...';
             responseBox.style.display = 'block';
+            responseBox.style.color = '#fff'; // Default text color
             responseBox.textContent = 'Working... this may take a few minutes for large playlists.';
 
             try {
@@ -374,12 +473,12 @@ HTML_APP_PAGE = """
                     responseBox.style.color = '#1DB954';
                     responseBox.textContent = resultText;
                 } else {
-                    responseBox.style.color = '#FF4500';
+                    responseBox.style.color = '#FF4500'; // Red for error
                     responseBox.textContent = 'Error: ' + resultText;
                 }
                 
             } catch (error) {
-                responseBox.style.color = '#FF4500';
+                responseBox.style.color = '#FF4s00'; // Red for error
                 responseBox.textContent = 'A network error occurred: ' + error.message;
             } finally {
                 submitBtn.disabled = false;
