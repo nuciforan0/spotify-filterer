@@ -20,6 +20,18 @@ CLIENT_SECRET = os.environ.get("CLIENT_SECRET")
 REDIRECT_URI = os.environ.get("REDIRECT_URI") # Should be https://.../callback
 SCOPE = "user-library-read playlist-read-private playlist-read-collaborative playlist-modify-private playlist-modify-public"
 
+# --- LOGO SVG (for use in templates) ---
+# A custom-made "Spotify Filter" logo
+SVG_LOGO = """
+<svg width="40" height="40" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M85.006 15.011C75.874 5.879 63.63 0 50 0C22.386 0 0 22.386 0 50C0 77.614 22.386 100 50 100C77.614 100 100 77.614 100 50C100 36.37 94.121 24.126 85.006 15.011ZM74.062 70.312C73.12 71.304 71.696 71.597 70.704 70.655C58.344 63.098 42.66 61.266 25.12 65.4C23.999 65.684 22.844 65.045 22.56 63.924C22.276 62.803 22.915 61.648 24.036 61.364C42.84 57.008 59.73 58.97 73.193 67.24C74.185 68.17 74.478 69.593 73.536 70.585L74.062 70.312Z" fill="#1DB954"/>
+    <path d="M98 60H76C75.4477 60 75 60.4477 75 61V65C75 65.5523 75.4477 66 76 66H98C98.5523 66 99 65.5523 99 65V61C99 60.4477 98.5523 60 98 60Z" fill="white"/>
+    <path d="M94 72H80C79.4477 72 79 72.4477 79 73V77C79 77.5523 79.4477 78 80 78H94C94.5523 78 95 77.5523 95 77V73C95 72.4477 94.5523 72 94 72Z" fill="white"/>
+    <path d="M90 84H84C83.4477 84 83 84.4477 83 85V89C83 89.5523 83.4477 90 84 90H90C90.5523 90 91 89.5523 91 89V85C91 84.4477 90.5523 84 90 84Z" fill="white"/>
+</svg>
+"""
+
+
 def get_oauth_manager():
     """Returns a SpotifyOAuth object that uses the user's session for caching."""
     return SpotifyOAuth(
@@ -27,8 +39,6 @@ def get_oauth_manager():
         client_secret=CLIENT_SECRET,
         redirect_uri=REDIRECT_URI,
         scope=SCOPE,
-        # We replace the local ".cache" file with Flask's session.
-        # This makes it work for multiple users on a website.
         cache_handler=spotipy.cache_handler.FlaskSessionCacheHandler(session)
     )
 
@@ -38,13 +48,10 @@ def get_spotify_client():
     token_info = oauth_manager.get_cached_token()
 
     if not token_info:
-        # Not logged in or token expired
         return None
     
-    # Refresh token if needed
     if oauth_manager.is_token_expired(token_info):
         token_info = oauth_manager.refresh_access_token(token_info['refresh_token'])
-        # Save the new token into the session
         session['token_info'] = token_info
 
     return spotipy.Spotify(auth=token_info['access_token'])
@@ -62,7 +69,7 @@ def index():
     
     if not sp:
         # User is not logged in
-        return render_template_string(HTML_LOGIN_PAGE)
+        return render_template_string(HTML_LOGIN_PAGE, logo=SVG_LOGO)
 
     # User is logged in, show the main app
     user_info = sp.current_user()
@@ -73,21 +80,16 @@ def index():
     offset = 0
     limit = 50
     while True:
-        # We need to fetch images, so we can't just use current_user_playlists
         results = sp.current_user_playlists(limit=limit, offset=offset)
         if not results['items']:
             break
         
-        # Manually fetch full playlist details to get images (which current_user_playlists sometimes omits)
-        # We can optimize this later if needed, but this is more reliable
         full_playlist_items = []
         for item in results['items']:
-             # We need fields for name, id, images, and tracks.total
             try:
                 pl = sp.playlist(item['id'], fields="id,name,images,tracks.total")
                 full_playlist_items.append(pl)
             except Exception:
-                # Handle cases where a playlist might be inaccessible
                 pass 
                 
         playlists.extend(full_playlist_items)
@@ -99,14 +101,14 @@ def index():
     return render_template_string(
         HTML_APP_PAGE, 
         user_name=user_info['display_name'],
-        playlists=playlists
+        playlists=playlists,
+        logo=SVG_LOGO
     )
 
 @app.route("/login")
 def login():
     """Redirects user to Spotify to log in."""
     oauth_manager = get_oauth_manager()
-    # This URL is the Spotify "Allow" page
     auth_url = oauth_manager.get_authorize_url()
     return redirect(auth_url)
 
@@ -118,7 +120,6 @@ def callback():
     """
     oauth_manager = get_oauth_manager()
     
-    # Check for errors from Spotify
     if request.args.get("error"):
         error_msg = request.args.get("error")
         return f"Error from Spotify: {error_msg}"
@@ -128,13 +129,10 @@ def callback():
         return "Error: No code provided in callback."
 
     try:
-        # Exchange the code for an access token
         token_info = oauth_manager.get_access_token(code)
-        # We don't save it directly, the FlaskSessionCacheHandler did it for us.
     except Exception as e:
         return f"Error getting token: {e}"
 
-    # Redirect back to the homepage (they are now logged in)
     return redirect(url_for("index"))
 
 @app.route("/logout")
@@ -156,11 +154,7 @@ def run_filter():
         # 1. Get data from the submitted form
         form_data = request.form
         target_playlist_link = form_data.get("target_playlist")
-        
-        # This gets ALL checked boxes for "filter_playlists"
         filter_playlist_ids = form_data.getlist("filter_playlists")
-        
-        # Check if "Liked Songs" was also checked
         include_liked_songs = form_data.get("include_liked_songs") == "on"
         
         # 2. Get ID from the target playlist link
@@ -174,7 +168,6 @@ def run_filter():
         print("Building filter list...")
         all_filter_song_ids = set()
 
-        # Add "Liked Songs" if checked
         if include_liked_songs:
             print("Fetching Liked Songs...")
             offset = 0
@@ -186,11 +179,9 @@ def run_filter():
                     if item['track'] and item['track']['id']:
                         all_filter_song_ids.add(item['track']['id'])
                 offset += 50
-                print(f"Loaded {len(all_filter_song_ids)} liked songs...")
         
-        # Add songs from each "filter playlist"
         for filter_pid in filter_playlist_ids:
-            if filter_pid == "liked_songs": continue # Handled above
+            if filter_pid == "liked_songs": continue 
             
             filter_playlist_name = sp.playlist(filter_pid, fields='name')['name']
             print(f"Fetching songs from filter playlist: '{filter_playlist_name}'...")
@@ -208,7 +199,9 @@ def run_filter():
 
         # 4. Find songs in the target playlist that are in our filter set
         print(f"Scanning target playlist: '{playlist_name}'")
-        tracks_to_remove_ids = []
+        
+        # We now store {'id': ..., 'name': ...}
+        tracks_to_remove = [] 
         offset = 0
         while True:
             results = sp.playlist_items(target_playlist_id, limit=100, offset=offset, fields="items(track(id, name)), next")
@@ -222,20 +215,38 @@ def run_filter():
                 
                 if track['id'] in all_filter_song_ids:
                     print(f"  -> Found match: {track['name']}")
-                    tracks_to_remove_ids.append(track['id'])
+                    tracks_to_remove.append({'id': track['id'], 'name': track['name']})
             offset += 100
         
         # 5. Remove the songs in batches
-        if not tracks_to_remove_ids:
+        if not tracks_to_remove:
             return f"All done! No songs to remove from '{playlist_name}'."
 
-        print(f"Removing {len(tracks_to_remove_ids)} songs...")
+        print(f"Removing {len(tracks_to_remove)} songs...")
+        
+        # Get just the IDs for the API call
+        tracks_to_remove_ids = [t['id'] for t in tracks_to_remove]
+        
         for i in range(0, len(tracks_to_remove_ids), 100):
             batch = tracks_to_remove_ids[i:i+100]
             sp.playlist_remove_all_occurrences_of_items(target_playlist_id, batch)
             print(f"Removed batch {i//100 + 1}...")
-
-        return f"✅ Success! Removed {len(tracks_to_remove_ids)} songs from '{playlist_name}'."
+        
+        # Build an HTML response with the list of removed songs
+        song_list_html = "<ul class='removed-song-list'>"
+        for track in tracks_to_remove:
+            # We escape the track name to prevent HTML injection
+            track_name_escaped = (
+                track['name']
+                .replace('&', '&amp;')
+                .replace('<', '&lt;')
+                .replace('>', '&gt;')
+            )
+            song_list_html += f"<li>{track_name_escaped}</li>"
+        song_list_html += "</ul>"
+        
+        success_message = f"✅ Success! Removed {len(tracks_to_remove)} songs from '{playlist_name}'."
+        return f"<div>{success_message}</div><br><h4>Removed Songs:</h4>{song_list_html}"
 
     except Exception as e:
         print(f"An error occurred: {e}")
@@ -265,15 +276,76 @@ HTML_LOGIN_PAGE = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Spotify Filterer</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; display: grid; place-items: center; min-height: 90vh; background-color: #121212; color: #fff; }
-        .container { text-align: center; background: #282828; padding: 3rem; border-radius: 1rem; }
-        .login-btn { background-color: #1DB954; color: white; padding: 1rem 2rem; border: none; border-radius: 500px; text-decoration: none; font-size: 1.2rem; font-weight: bold; cursor: pointer; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+            display: flex; /* Changed to flex */
+            flex-direction: column; /* Stack header and container */
+            align-items: center; /* Center horizontally */
+            justify-content: center; /* Center vertically */
+            min-height: 100vh; 
+            background-color: #121212; 
+            color: #fff;
+            margin: 0;
+            padding: 2rem;
+            box-sizing: border-box;
+            
+            /* The new animated background */
+            background: linear-gradient(-45deg, #121212, #191919, #0d2a14, #191919);
+            background-size: 400% 400%;
+            animation: gradientBG 25s ease infinite;
+        }
+        
+        @keyframes gradientBG {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        .header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .header h1 {
+            font-size: 2.5rem;
+        }
+
+        .container { 
+            text-align: center; 
+            background: #282828; 
+            padding: 3rem 4rem; 
+            border-radius: 1rem; 
+            width: 100%;
+            max-width: 450px;
+        }
+        .container p {
+            font-size: 1.2rem;
+            color: #aaa;
+            margin-bottom: 2.5rem; /* Added spacing */
+        }
+        .login-btn { 
+            background-color: #1DB954; 
+            color: white; 
+            padding: 1.25rem 2rem; /* Taller button */
+            border: none; 
+            border-radius: 500px; 
+            text-decoration: none; 
+            font-size: 1.2rem; 
+            font-weight: bold; 
+            cursor: pointer; 
+            display: block; /* Make it full-width */
+            width: 100%;
+        }
         .login-btn:hover { background-color: #1ED760; }
     </style>
 </head>
 <body>
+    <div class="header">
+        {{ logo|safe }}
+        <h1>Spotify Filterer</h1>
+    </div>
     <div class="container">
-        <h1>Spotify Playlist Filterer</h1>
         <p>Log in to get started.</p>
         <a href="{{ url_for('login') }}" class="login-btn">Login with Spotify</a>
     </div>
@@ -289,7 +361,25 @@ HTML_APP_PAGE = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Spotify Filterer</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #121212; color: #fff; margin: 0; padding: 2rem; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+            background-color: #121212; 
+            color: #fff; 
+            margin: 0; 
+            padding: 2rem;
+            
+            /* The new animated background */
+            background: linear-gradient(-45deg, #121212, #191919, #0d2a14, #191919);
+            background-size: 400% 400%;
+            animation: gradientBG 25s ease infinite;
+        }
+
+        @keyframes gradientBG {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
         .header { 
             display: flex; 
             justify-content: space-between; 
@@ -297,6 +387,11 @@ HTML_APP_PAGE = """
             border-bottom: 1px solid #282828; 
             padding-bottom: 2rem; 
             margin-bottom: 2rem;
+        }
+        .header .title {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
         }
         .header h1 { margin: 0; }
         .header span { font-size: 0.9rem; }
@@ -431,11 +526,30 @@ HTML_APP_PAGE = """
             display: none; 
             font-size: 1.1rem;
         }
+        
+        /* Style for the new removed songs list */
+        .removed-song-list {
+            max-height: 200px;
+            overflow-y: auto;
+            background: #121212;
+            padding: 1rem;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            list-style-type: decimal;
+            margin-bottom: 0;
+        }
+        .removed-song-list li {
+            padding: 0.25rem 0;
+        }
+
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>Spotify Filterer</h1>
+        <div class="title">
+            {{ logo|safe }}
+            <h1>Spotify Filterer</h1>
+        </div>
         <span>Logged in as: <b>{{ user_name }}</b> <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a></span>
     </div>
 
@@ -510,14 +624,13 @@ HTML_APP_PAGE = """
             const form = e.target;
             const formData = new FormData(form);
             const submitBtn = form.querySelector('.submit-btn');
-_button = document.querySelector('.submit-btn');
             const responseBox = document.getElementById('response-box');
             
             submitBtn.disabled = true;
             submitBtn.textContent = 'Filtering...';
             responseBox.style.display = 'block';
             responseBox.style.color = '#fff'; // Default text color
-            responseBox.textContent = 'Working... this may take a few minutes for large playlists.';
+            responseBox.innerHTML = 'Working... this may take a few minutes for large playlists.';
 
             try {
                 const response = await fetch("{{ url_for('run_filter') }}", {
@@ -529,15 +642,16 @@ _button = document.querySelector('.submit-btn');
                 
                 if (response.ok) {
                     responseBox.style.color = '#1DB954';
-                    responseBox.textContent = resultText;
+                    // We now use innerHTML to render the returned list
+                    responseBox.innerHTML = resultText;
                 } else {
                     responseBox.style.color = '#FF4500'; // Red for error
-                    responseBox.textContent = 'Error: ' + resultText;
+                    responseBox.innerHTML = 'Error: ' + resultText;
                 }
                 
             } catch (error) {
                 responseBox.style.color = '#FF4500'; // Red for error
-                responseBox.textContent = 'A network error occurred: ' + error.message;
+                responseBox.innerHTML = 'A network error occurred: ' + error.message;
             } finally {
                 submitBtn.disabled = false;
                 submitBtn.textContent = 'Start Filtering';
@@ -552,4 +666,3 @@ _button = document.querySelector('.submit-btn');
 # Vercel will use a different method to run the 'app' object
 if __name__ == "__main__":
     app.run(debug=True, port=8080)
-
